@@ -13,7 +13,14 @@ import firebase_admin
 from dotenv import load_dotenv
 from firebase_admin import credentials, firestore
 from datetime import datetime, date
-
+from nano_banana import chat_with_banana
+import time
+import io
+import zipfile
+from fastapi.responses import StreamingResponse
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 load_dotenv()
 app = FastAPI()
@@ -28,6 +35,77 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def get_user_details_by_id(doc_id):
+    try:
+        doc_ref = db.collection("transactions").document(doc_id)
+        doc = doc_ref.get()
+        return doc.to_dict()
+    except:
+        print("No such user found")
+    pass
+
+
+####
+
+def send_email_to_client(email: str, subject: str, body: str) -> None:
+    sender_email =  os.getenv("sender_email")
+    sender_password = os.getenv("sender_password")
+    original_password = os.getenv("original_password")  # Parola de aplicație (App Password)
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = email
+    message["Subject"] = subject
+    message.attach(MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, email, message.as_string())
+            print(f"Email trimis cu succes către {email}")
+            
+    except Exception as e:
+        print(f"Eroare la trimiterea emailului: {e}")
+
+
+
+def update_twin(doc_id, which_picture, value):
+
+    try:
+
+        print(f"Twinn {doc_id}")
+        print(which_picture)
+        print(value)
+        doc_ref = db.collection("transactions").document(doc_id)
+        doc = doc_ref.get()
+
+        print(doc_ref)
+        pictures_found = doc.to_dict()["pictures"]
+        print(doc.to_dict())
+
+        new_pictures = []
+        for picture in pictures_found:
+
+            if picture["picture_content"] == which_picture: 
+
+                print("Picture")
+                print(picture)
+
+                picture['twin_content'] = value
+
+            new_pictures.append(picture)
+                
+        
+        doc_ref.update({"pictures": new_pictures})
+
+        return 
+
+    except Exception as e:
+        print(e)
+        return {"status": 500, "message": str(e)}   
 
 
 firebase_creds_json = os.getenv("FIREBASE_CRED")
@@ -54,16 +132,60 @@ gc_storage_client = storage.Client()
 
 RECEIVED_PICTURES_DIR = "received_pictures"
 
-def talk_to_banana(nest, path):
+def talk_to_banana(nest, path, content_type, transaction_id, transaction_date):
 
     print("Am început procesarea pe fundal...")
 
-    #AI talking
+    print(f"Transaction : {transaction_id}, {transaction_date}")
+    
 
-    # ... os.makedirs, upload în bucket, salvare în Firestore etc.
-    print("Procesarea s-a terminat cu succes!")
     with open(path, "w", encoding="utf-8") as f:
         f.write(nest.model_dump_json(indent=4))
+
+    print("S a scris in json")
+
+    #AI talking
+
+    for picture in nest.pictures:
+
+        out_id =  uuid.uuid4()
+
+        out_file = f"{out_id}.jpg"
+
+        if picture.task == "nature":
+
+            RECEIVED_PICTURES_NATURE = "nature"
+            os.makedirs(RECEIVED_PICTURES_NATURE, exist_ok=True)
+            for_bucket = os.path.join(RECEIVED_PICTURES_NATURE, out_file)
+    
+            chat_with_banana(f"./received_pictures/{picture.picture_content}", 
+            "Make this code here to look like is being in vs Code dark mode" , 
+            f"./nature/{out_file}")
+
+            print("Pushed to Nature")
+
+            upload_to_bucket(for_bucket, blob_name=None, content_type=content_type)
+
+            update_twin(transaction_id, picture.picture_content, out_file)
+
+        else:
+
+            RECEIVED_PICTURES_GEOMETRY = "geometry"
+            os.makedirs(RECEIVED_PICTURES_GEOMETRY, exist_ok=True)
+            for_bucket = os.path.join(RECEIVED_PICTURES_GEOMETRY, out_file)
+
+            chat_with_banana(f"./received_pictures/{picture.picture_content}", 
+            "Make this code here to look like is being in vs Code dark mode" , 
+            f"./geometry/{out_file}")
+
+            print("Pushed to Geometry")
+
+            upload_to_bucket(for_bucket , blob_name=None, content_type=content_type)
+            
+            update_twin(transaction_id, picture.picture_content, out_file)
+        
+    send_email_to_client(nest.email, f"Batch of pictures ready. Your code {transaction_id}", "")
+    
 
 
 def upload_to_bucket(local_path, blob_name=None, content_type=None):
@@ -92,19 +214,52 @@ def download_from_bucket(picture_name: str, destination_path: str = None):
     with open(destination_path, "wb") as f:
         gc_storage_client.download_blob_to_file(blob, f)
 
+    return destination_path
+
 # Testing AREA 
 
-@app.get("/test")
-def test():
-    return FileResponse("image.png", media_type="image/png")
+# @app.get("/getProducts")
+# def getProducts(email: str):
+
+#     return FileResponse("image.png", media_type="image/png")
+
+@app.get("/getProducts")
+def get_products(code: str):
+
+    print(code)
+
+    transaction_details = get_user_details_by_id(code.strip())
+
+    image_paths = []
+
+    for picture in transaction_details["pictures"]:
+
+        image_downloaded = download_from_bucket(picture["twin_content"])
+
+        image_paths.append(image_downloaded)
+
+    
+    # Creăm arhiva ZIP în memorie (RAM)
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for path in image_paths:
+            zip_file.write(path, arcname=path)
+            
+    zip_buffer.seek(0)
+    
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=products.zip"}
+    )
 
 
 @app.post("/ReceiveNest")
 def receive_nest(nest: Nest, background_tasks: BackgroundTasks):
 
-    good_format_date = datetime.combine(nest.date, datetime.min.time())
+    # good_format_date = datetime.combine(nest.date, datetime.min.time())
 
-    nest.date = good_format_date
+    # nest.date = good_format_date
     os.makedirs(RECEIVED_PICTURES_DIR, exist_ok=True)
 
     json_path = os.path.join(RECEIVED_PICTURES_DIR, "nest_data.json")
@@ -136,20 +291,10 @@ def receive_nest(nest: Nest, background_tasks: BackgroundTasks):
                 f.write(binary_data)
 
             upload_to_bucket(local_path, blob_name=file_name, content_type=content_type)
+            print(picture.picture_content)
+            print("Sleeping")
+            time.sleep(2)
 
-            # Stocare firebase
-            db.collection("transactions").add(nest.model_dump())
-            background_tasks.add_task(talk_to_banana, nest, "nest.json")
-
-            return {"status": "success", "message": "Cererea a fost primită și se procesează."}
-
-            # Aici ar veni un talk to gemini de local_path --> AI generated local_path content
-
-            # Upload_to_bucket(AI generated local_path content)
-
-            # Update firebase
-
-            # remove both files
 
         except Exception as e:
             # 1. Salvează detaliile erorii în loguri pentru debugging (recomandat)
@@ -161,16 +306,22 @@ def receive_nest(nest: Nest, background_tasks: BackgroundTasks):
                 detail="A apărut o eroare internă la procesarea datelor."
                 # Sau detail=str(e) dacă vrei să trimiți mesajul exact al excepției către client
             )
+        
+    
+    update_time, doc_ref = db.collection("transactions").add(nest.model_dump())
+    background_tasks.add_task(talk_to_banana, nest, "nest.json", content_type, doc_ref.id ,update_time)
+
+    return {"status": "success", "message": "Cererea a fost primită și se procesează."}
           # Salvarea în fișier
         
 
 
-@app.post("/ReceiveNest")
-def receive_nest(email: str):
+# @app.post("/ReceiveNest")
+# def receive_nest(email: str):
 
-    #Get user 
-    download_from_bucket()
-    pass
+#     #Get user 
+#     download_from_bucket()
+#     pass
 
 if __name__ == "__main__":
     # upload_to_bucket("image.png")

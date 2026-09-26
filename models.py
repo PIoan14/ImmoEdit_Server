@@ -7,10 +7,10 @@ class PictureGC(BaseModel):
     price: float
     task: str
     picture_content: str
+    twin_content: str
 
 
 class Nest(BaseModel):
     email : str
-    date: Date
     pictures: List[PictureGC]
     total_price: float
