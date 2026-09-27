@@ -13,7 +13,9 @@ def chat_with_banana(input_image, prompt, output_image):
 
     #API KEY IN ENV
 
-    .env
+    client = genai.Client(api_key=os.getenv("nano_key"))
+
+    
     response = client.models.generate_content(
         model="gemini-2.5-flash-image",
         contents=[image_input, prompt],

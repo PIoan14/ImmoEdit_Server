@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from google.oauth2 import service_account
 
 load_dotenv()
 app = FastAPI()
@@ -121,13 +122,18 @@ else:
 
 db = firestore.client(database_id="immo-edit-fb")
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "immoapp-508512-dd76def4bfdf.json"
-gc_storage_client = storage.Client()
-# bucket = gc_storage_client.bucket("original_pictures")
-# bucket.location = "US"
-# bucket = gc_storage_client.create_bucket(bucket)
 
-#db.collection("users").add(user.model_dump())
+
+creds_json_str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+if not creds_json_str:
+    raise ValueError("Variabila GOOGLE_APPLICATION_CREDENTIALS nu a fost găsită în .env")
+
+# Parsează string-ul JSON în dicționar
+credentials_info = json.loads(creds_json_str)
+
+credentials = service_account.Credentials.from_service_account_info(credentials_info)
+gc_storage_client = storage.Client(credentials=credentials, project=credentials_info.get("project_id"))
 
 
 RECEIVED_PICTURES_DIR = "received_pictures"
