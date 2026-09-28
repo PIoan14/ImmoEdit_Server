@@ -22,6 +22,16 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google.oauth2 import service_account
+import yaml
+
+
+def load_config(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file)
+
+
+# Exemplu de utilizare:
+config = load_config("config.yaml")
 
 load_dotenv()
 app = FastAPI()
@@ -155,7 +165,7 @@ def talk_to_banana(nest, path, content_type, transaction_id, transaction_date):
 
             chat_with_banana(
                 f"./received_pictures/{picture.picture_content}",
-                "Make this code here to look like is being in vs Code dark mode",
+                config["prompts"]["nature"],
                 f"./nature/{out_file}",
             )
 
@@ -172,7 +182,7 @@ def talk_to_banana(nest, path, content_type, transaction_id, transaction_date):
 
             chat_with_banana(
                 f"./received_pictures/{picture.picture_content}",
-                "Make this code here to look like is being in vs Code dark mode",
+                config["prompts"]["geometry"],
                 f"./geometry/{out_file}",
             )
 
@@ -292,7 +302,6 @@ def receive_nest(nest: Nest, background_tasks: BackgroundTasks):
             # 1. Salvează detaliile erorii în loguri pentru debugging (recomandat)
             print(f"Eroare la procesarea cererii: {e}")
 
-            # 2. Trimite clientului un răspuns de eroare HTTP 500 (Internal Server Error)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="A apărut o eroare internă la procesarea datelor.",
@@ -303,18 +312,44 @@ def receive_nest(nest: Nest, background_tasks: BackgroundTasks):
     background_tasks.add_task(talk_to_banana, nest, "nest.json", content_type, doc_ref.id, update_time)
 
     return {"status": "success", "message": "Cererea a fost primită și se procesează."}
-    # Salvarea în fișier
 
 
-# @app.post("/ReceiveNest")
-# def receive_nest(email: str):
 
-#     #Get user
-#     download_from_bucket()
-#     pass
+def update_config(file_path, service, value_change):
+
+    with open(file_path, "r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+
+    config["prompts"][service] = value_change
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        yaml.safe_dump(config, file, allow_unicode=True, sort_keys=False)
+
+
+@app.post("/ChangePrompts")
+def change_prompts(service: str, value: str):
+
+    if service in list(config["prompts"].keys()):
+    
+        if value == "":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Promptul nu poate fi null",
+            )
+        else:
+             update_config("config.yaml", value_change=value, service=service)
+            
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Nu exista serviciu pentru care sa se schimbe promptul",
+        )
+    return {"status": "success", "message": "Promptul pentru Banana s-a schimbat! Reincarca pagina."}
+        
+
 
 if __name__ == "__main__":
-    # upload_to_bucket("image.png")
-    # download_from_bucket()
+    
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

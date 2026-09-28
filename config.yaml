@@ -1,0 +1,16 @@
+prompts:
+  nature: |
+    Transform this scene into a breathtaking 
+    luxury hotel twilight sunset. Keep the architecture realistic 
+    and unchanged. Create a dramatic sky transitioning 
+    from warm orange to deep purple, with the sun setting on the horizon, 
+    soft golden glow, subtle atmospheric light, cinematic colors, 
+    elegant and luxurious mood, photorealistic, high-end real estate 
+    photography.Don t add extra lighting elements or change the lights 
+    on the building.Replace only the sky and the ambience
+    
+  
+  geometry: |
+    Completely remove the objects from the room. 
+    Keep the exact same proportions and angles. Completley empty the room.
+    Do not modify the shape and the geometry of the room.
